@@ -55,4 +55,4 @@ out
 # env
 .env
 sendgrid.env
-.vercel
+.vercel.env
