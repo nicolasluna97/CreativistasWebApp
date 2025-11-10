@@ -43,9 +43,11 @@
     "@alheimsins/b5-result-text": "3.0.4",
     "@alheimsins/react-google-charts": "1.6.5",
     "@emotion/core": "^10.1.1",
-    "@emotion/styled": "^10.0.27",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^10.3.0",
     "@material-ui/core": "^5.0.0-alpha.15",
-    "@material-ui/icons": "^4.9.1",
+    "@mui/icons-material": "^7.3.5",
+    "@mui/material": "^7.3.5",
     "@sendgrid/mail": "^7.2.2",
     "axios": "0.19.2",
     "b5-calculate-score": "1.0.4",
@@ -68,6 +70,7 @@
     "request-country": "0.1.5"
   },
   "devDependencies": {
-    "@vercel/node": "^1.7.4"
+    "@vercel/node": "^1.7.4",
+    "cross-env": "^10.1.0"
   }
 }
