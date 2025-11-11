@@ -1,2 +1,13 @@
 .vercel
 node_modules
+# env / builds
+.env
+.env.*
+.next/
+node_modules/
+dist/
+build/
+
+# logs
+npm-debug.log*
+yarn-error.log*
