@@ -73,10 +73,14 @@ app.prepare().then(async () => {
     const filePath = join(__dirname, 'static', 'sitemap.xml')
     return app.serveStatic(req, res, filePath)
   })
+
+  if (process.env.NODE_ENV === 'production') {
   server.get('/service-worker.js', (req, res) => {
     const filePath = join(__dirname, '.next', 'service-worker.js')
     return app.serveStatic(req, res, filePath)
   })
+}
+  
   server.get('/api/ping', (req, res) => res.send('pong'))
 
   // Si DB deshabilitada en local → levantar sin conectar a Mongo

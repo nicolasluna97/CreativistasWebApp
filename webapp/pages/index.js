@@ -19,7 +19,7 @@ function SiteIndex () {
       </p>
       <p>
         Sigamos en contacto.<br />
-        Seguinos en <a href="https://www.instagram.com/creactivistas/" style={{color: '#00d090;', fontSize: '1.1rem'}}>@creactivistas</a>
+        Seguinos en <a href="https://www.instagram.com/creactivistas/" style={{color: '#00d090', fontSize: '1.1rem'}}>@creactivistas</a>
       </p>
     </div>
   )

@@ -1,22 +1,58 @@
-import { withRouter } from 'next/router'
-import { Link } from '../../routes'
-import React, { Children } from 'react'
+import React from 'react'
+import NextLink from 'next/link'
+import { useRouter } from 'next/router'
 
-const ActiveLink = ({ router, children, ...props }) => {
-  const child = Children.only(children)
+export default function Link(props) {
+  const {
+    route,
+    href,
+    params,
+    className,
+    activeClassName,
+    sublink,            // 👈 la tomamos acá
+    children,
+    ...rest
+  } = props
 
-  let className = child.props.className || null
-  const route = props.route.toLowerCase().substring(1)
-  const pathname = router.pathname.toLowerCase()
-  const sublink = props.sublink
-  if (router.pathname === props.route || (route.length > 1 && pathname.includes(route) && props.activeClassName && !sublink)) {
-    className = `${className !== null ? className : ''} ${props.activeClassName}`.trim()
+  const router = useRouter()
+
+  const resolvedHref = resolveHref({ route, href, params })
+  const isActive = activeClassName && router?.pathname === stripQuery(resolvedHref)
+
+  // 👇 agregamos 'sublink' como clase si viene true, y NO lo pasamos al DOM
+  const classes = [
+    className,
+    isActive ? activeClassName : null,
+    sublink ? 'sublink' : null
+  ].filter(Boolean).join(' ') || undefined
+
+  if (React.isValidElement(children) && children.type === 'a') {
+    const { children: inner, className: aClass, ...aRest } = children.props || {}
+    const mergedClass = [classes, aClass].filter(Boolean).join(' ') || undefined
+    return (
+      <NextLink href={resolvedHref} className={mergedClass} {...aRest} {...rest}>
+        {inner}
+      </NextLink>
+    )
   }
 
-  delete props.sublink
-  delete props.activeClassName
-
-  return <Link {...props}>{React.cloneElement(child, { className })}</Link>
+  return (
+    <NextLink href={resolvedHref} className={classes} {...rest}>
+      {children}
+    </NextLink>
+  )
 }
 
-export default withRouter(ActiveLink)
+function resolveHref({ route, href, params }) {
+  let out = href || route || '/'
+  if (params && typeof params === 'object') {
+    Object.entries(params).forEach(([k, v]) => {
+      out = out.replace(`:${k}`, encodeURIComponent(String(v)))
+    })
+  }
+  return out
+}
+function stripQuery(u) {
+  const i = u.indexOf('?')
+  return i >= 0 ? u.slice(0, i) : u
+}
