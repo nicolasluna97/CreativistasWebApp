@@ -23,11 +23,14 @@ export default ({ path, user, info }) => {
       {big5 && (
         <div className='nav-container'>
           <div className='links-container'>
-            <Link route='/big5' activeClassName='active' sublink><a>INTRO</a></Link>
-            <Link route='/big5/test' activeClassName='active'><a>TEST</a></Link>
-            <Link route='/big5/resultados' activeClassName='active'><a>RESULTADOS</a></Link>
-            {/* <Link route='/big5/compare' activeClassName='active'><a>COMPARE</a></Link> */}
-            <Link route='/big5/creditos' activeClassName='active'><a>CR&Eacute;DITOS</a></Link>
+            <Link route='/' activeClassName='active'>Inicio</Link>
+            <Link route='/actus' activeClassName='active'>Actus</Link>
+            <Link route='/big5' activeClassName='active'>Big 5</Link>
+            <Link route='/big5' activeClassName='active' sublink>INTRO</Link>
+            <Link route='/big5/test' activeClassName='active'>TEST</Link>
+            <Link route='/big5/resultados' activeClassName='active'>RESULTADOS</Link>
+            {/* <Link route='/big5/compare' activeClassName='active'>COMPARE</Link> */}
+            <Link route='/big5/creditos' activeClassName='active'>CRÉDITOS</Link>
           </div>
           <div className='nav-right'>
             {/* {user

@@ -4,11 +4,11 @@ export default ({ user, info }) => (
   <header>
     <div className='nav-container'>
       <div className='links-container'>
-        <Link route='/' activeClassName='active'><a>INICIO</a></Link>
-        <Link route='/test' activeClassName='active'><a>TEST</a></Link>
-        <Link route='/resultados' activeClassName='active'><a>RESULTADOS</a></Link>
-        {/* <Link route='/compare' activeClassName='active'><a>COMPARE</a></Link> */}
-        <Link route='/creditos' activeClassName='active'><a>CR&Eacute;DITOS</a></Link>
+        <Link route='/' activeClassName='active'>INICIO</Link>
+        <Link route='/test' activeClassName='active'>TEST</Link>
+        <Link route='/resultados' activeClassName='active'>RESULTADOS</Link>
+        {/* <Link route='/compare' activeClassName='active'>COMPARE</Link> */}
+        <Link route='/creditos' activeClassName='active'>CRÉDITOS</Link>
       </div>
       <div className='nav-right'>
         {/* {user

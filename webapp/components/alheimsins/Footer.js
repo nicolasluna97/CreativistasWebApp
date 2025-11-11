@@ -20,7 +20,9 @@ export default () => (
       {
         links.map(link =>
           !link.target
-            ? <a key={link.name} href={link.url} target='_blank' style={{ color: link.color }} rel='noopener noreferrer'>{link.icon}{link.name}</a>
+            ? <Link key={link.name} route={link.url}>
+              {link.icon}{link.name}
+              </Link>
             : <Link key={link.name} route={link.url}><a>{link.icon}{link.name}</a></Link>
         )
       }
