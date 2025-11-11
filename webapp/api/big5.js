@@ -1,4 +1,3 @@
-// ...existing code...
 /***
  NODE SERVERLESS API FOR USE WITH VERCEL
  ***/
@@ -19,10 +18,14 @@ const mongoClient = require('../lib/mongo-client')
 
 const escapeHtml = require('escape-html')
 const validator = require('validator')
+const Joi = require('joi')
+const { enqueueEmail } = require('../lib/email-queue')
 
 const emailTemplateBig5 = require('../emailtemplate-big5')
 const sgMail = require('@sendgrid/mail')
-sgMail.setApiKey(process.env.SENDGRID_API_KEY)
+if (process.env.SENDGRID_API_KEY && process.env.SENDGRID_API_KEY.startsWith('SG.')) {
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY)
+}
 
 const emailDefaults = {
   to: '',
@@ -33,7 +36,19 @@ const emailDefaults = {
   html: emailTemplateBig5
 }
 
-// ...existing code...
+// Joi schema (validación y stripUnknown)
+const big5Schema = Joi.object({
+  clientEmail: Joi.string().email().required(),
+  clientName: Joi.string().trim().min(1).max(200).required(),
+  answers: Joi.array().items(Joi.number().integer().min(1).max(5)).optional(),
+  scores: Joi.object({
+    openness: Joi.number().min(0).max(100),
+    conscientiousness: Joi.number().min(0).max(100),
+    extraversion: Joi.number().min(0).max(100),
+    agreeableness: Joi.number().min(0).max(100),
+    neuroticism: Joi.number().min(0).max(100)
+  }).optional().unknown(false)
+}).options({ abortEarly: false, stripUnknown: true })
 
 module.exports = asyncHandler(async (req, res) => {
   const { client, db } = await mongoClient.connect()
@@ -51,75 +66,69 @@ module.exports = asyncHandler(async (req, res) => {
   if (method === 'POST') {
     const payload = body || {}
 
-    // Validaciones básicas; ampliá según tu esquema
-    if (!payload.clientEmail || typeof payload.clientEmail !== 'string' || !validator.isEmail(payload.clientEmail)) {
-      throw new HttpError(400, 'Invalid clientEmail', true)
-    }
-    if (!payload.clientName || typeof payload.clientName !== 'string' || payload.clientName.trim().length === 0) {
-      throw new HttpError(400, 'Invalid clientName', true)
+    // Validación con Joi (stripUnknown elimina campos inesperados)
+    const { error, value: validated } = big5Schema.validate(payload)
+    if (error) {
+      const details = error.details.map(d => ({ path: d.path.join('.'), message: d.message }))
+      throw new HttpError(400, 'Validation failed', true, { details })
     }
 
-    // Normalizar/sanitizar para la DB (no inyectar HTML)
-    payload.clientEmail = payload.clientEmail.trim()
-    payload.clientName = payload.clientName.trim().slice(0, 200) // limitar longitud
+    // Normalizar/sanitizar para DB (guardar valores limpios)
+    validated.clientEmail = String(validated.clientEmail).trim()
+    validated.clientName = String(validated.clientName).trim().slice(0, 200)
 
-    const result = await collection.insertOne(payload)
-    const data = Object.assign({}, payload, { _id: result.insertedId })
+    const result = await collection.insertOne(validated)
+    const data = Object.assign({}, validated, { _id: result.insertedId })
 
     // Responder inmediatamente al cliente
     res.status(201).json(data)
 
-    // Envío de email: preferir SendGrid Dynamic Template
+    // Construir mensaje de email (template preferido)
     const templateId = process.env.SENDGRID_TEMPLATE_ID
+    let msg
 
-    if (templateId) {
-      const msg = {
+    if (templateId && process.env.SENDGRID_API_KEY && process.env.SENDGRID_API_KEY.startsWith('SG.')) {
+      // dynamic template data
+      msg = {
         to: data.clientEmail,
         from: emailDefaults.from,
         bcc: emailDefaults.bcc,
-        templateId: templateId,
+        templateId,
         dynamic_template_data: {
           name: String(data.clientName || ''),
           domain: config.URL || '',
           id: String(data._id)
         }
       }
+    } else {
+      // Fallback: escapar variables antes de inyectar en HTML/text
+      const safeName = escapeHtml(String(data.clientName || ''))
+      const safeDomain = escapeHtml(String(config.URL || ''))
+      const safeId = escapeHtml(String(data._id))
 
-      sgMail.send(msg).catch(err => {
-        console.error('SendGrid (template) error:', err)
-        if (err && err.response) console.error(err.response.body)
-      })
+      const html = (emailDefaults.html || '')
+        .replace(/\$__NAME__/g, safeName)
+        .replace(/\$__DOMAIN__/g, safeDomain)
+        .replace(/\$__ID__/g, safeId)
 
-      return
+      const text = (emailDefaults.text || '')
+        .replace(/\$__NAME__/g, safeName)
+        .replace(/\$__DOMAIN__/g, safeDomain)
+        .replace(/\$__ID__/g, safeId)
+
+      msg = {
+        to: data.clientEmail,
+        from: emailDefaults.from,
+        bcc: emailDefaults.bcc,
+        subject: emailDefaults.subject,
+        text,
+        html
+      }
     }
 
-    // Fallback: escapar variables antes de inyectar en HTML/text
-    const safeName = escapeHtml(String(data.clientName || ''))
-    const safeDomain = escapeHtml(String(config.URL || ''))
-    const safeId = escapeHtml(String(data._id))
-
-    const html = (emailDefaults.html || '')
-      .replace(/\$__NAME__/g, safeName)
-      .replace(/\$__DOMAIN__/g, safeDomain)
-      .replace(/\$__ID__/g, safeId)
-
-    const text = (emailDefaults.text || '')
-      .replace(/\$__NAME__/g, safeName)
-      .replace(/\$__DOMAIN__/g, safeDomain)
-      .replace(/\$__ID__/g, safeId)
-
-    const msg = {
-      to: data.clientEmail,
-      from: emailDefaults.from,
-      bcc: emailDefaults.bcc,
-      subject: emailDefaults.subject,
-      text,
-      html
-    }
-
-    sgMail.send(msg).catch(err => {
-      console.error('SendGrid (html) error:', err)
-      if (err && err.response) console.error(err.response.body)
+    // Encolar el email para envío asíncrono (no bloquea la respuesta)
+    enqueueEmail(db, msg).catch(err => {
+      console.error('enqueueEmail failed:', err)
     })
 
     return
@@ -128,4 +137,3 @@ module.exports = asyncHandler(async (req, res) => {
   res.setHeader('Allow', 'GET, POST')
   throw new HttpError(405, 'Method Not Allowed', true)
 })
-// ...existing code...
