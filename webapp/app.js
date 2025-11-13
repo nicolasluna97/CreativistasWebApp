@@ -7,6 +7,7 @@ const express = require('express')
 const helmet = require('helmet')
 const rateLimit = require('express-rate-limit')
 const { join } = require('path')
+const validator = require('validator')
 
 const { MongoClient, ObjectId } = require('mongodb')
 const config = require('./config')
@@ -14,7 +15,7 @@ const validMongoId = require('./lib/valid-mongoid')
 const { big5Schema, actusSchema } = require('./lib/validation')
 
 const emailTemplateActus = require('./emailtemplate-actus')
-const emailTemplateBig5 = require('./emailtemplate-big5')
+const emailTemplateBig5  = require('./emailtemplate-big5')
 const sgMail = require('@sendgrid/mail')
 sgMail.setApiKey(process.env.SENDGRID_API_KEY)
 
@@ -33,7 +34,6 @@ const emailDefaults = {
     'Si recibiste este correo es probable que tu casilla no soporte HTML.'
 }
 
-// mínimo escape para evitar inyección en HTML local
 const escapeHtml = s =>
   String(s)
     .replace(/&/g, '&amp;')
@@ -44,18 +44,27 @@ const escapeHtml = s =>
 
 const hidratarEmailBase = (email, destinatario, nombreCliente, domain, testname) => {
   email.to = destinatario
-  email.subject = email.subject.replace('$__TESTNAME__', testname).replace('$__NAME__', escapeHtml(nombreCliente))
-  email.text = email.text.replace('$__NAME__', nombreCliente).replace('$__TESTNAME__', testname)
+  email.subject = email.subject
+    .replace('$__TESTNAME__', testname)
+    .replace('$__NAME__', escapeHtml(nombreCliente))
+
+  email.text = email.text
+    .replace('$__NAME__', nombreCliente)
+    .replace('$__TESTNAME__', testname)
+
   email.html = email.html.replace('$__NAME__', escapeHtml(nombreCliente))
   email.html = email.html.replace(/\$__DOMAIN__/g, domain)
   return email
 }
+
 const hidratarEmailBig5 = (email, id) => {
   email.html = email.html.replace(/\$__ID__/g, id)
   return email
 }
+
 const safeSend = async (msg) => {
-  try { await sgMail.send(msg) } catch (e) { console.error('EMAIL ERR', e?.response?.body || e) }
+  try { await sgMail.send(msg) }
+  catch (e) { console.error('EMAIL ERR', e?.response?.body || e) }
 }
 
 console.log(`> Initializing on ${config.URL}:${port}...`)
@@ -68,22 +77,23 @@ app.prepare().then(async () => {
   server.use(express.json())
   server.use('/api/', rateLimit({ windowMs: 60_000, max: 30 })) // 30 req/min en APIs
 
-  // estáticos requeridos por Next PWA / sitemap
+  // estáticos (sitemap + service worker solo en prod)
   server.get('/sitemap.xml', (req, res) => {
     const filePath = join(__dirname, 'static', 'sitemap.xml')
     return app.serveStatic(req, res, filePath)
   })
 
   if (process.env.NODE_ENV === 'production') {
-  server.get('/service-worker.js', (req, res) => {
-    const filePath = join(__dirname, '.next', 'service-worker.js')
-    return app.serveStatic(req, res, filePath)
-  })
-}
-  
+    server.get('/service-worker.js', (req, res) => {
+      const filePath = join(__dirname, '.next', 'service-worker.js')
+      return app.serveStatic(req, res, filePath)
+    })
+  }
+
+  // health
   server.get('/api/ping', (req, res) => res.send('pong'))
 
-  // Si DB deshabilitada en local → levantar sin conectar a Mongo
+  // Sin DB (local/test)
   if (disableDb) {
     console.log('⚠️  DB DESACTIVADA — solo servidor local.')
     server.use(handler)
@@ -103,7 +113,7 @@ app.prepare().then(async () => {
   const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true })
   try {
     await client.connect()
-    console.log('✅ MongoDB conectado a DB:', DB_NAME)
+    console.log('✅ MongoDB conectado')
   } catch (e) {
     console.error('❌ Error conectando a MongoDB:', e?.message || e)
     process.exit(1)
@@ -111,7 +121,7 @@ app.prepare().then(async () => {
 
   const db = client.db(DB_NAME)
   const actusDBCollection = db.collection(config.DB_COLLECTION_ACTUS)
-  const big5DBCollection = db.collection(config.DB_COLLECTION_BIG5)
+  const big5DBCollection  = db.collection(config.DB_COLLECTION_BIG5)
 
   // ============= RUTAS API =============
 
@@ -119,7 +129,9 @@ app.prepare().then(async () => {
   server.get('/api/big5', async (req, res) => {
     try {
       const id = req.query?.id
-      if (!id || !validMongoId(id)) return res.status(400).json({ error: 'Not a valid id' })
+      if (!id || !validMongoId(id)) {
+        return res.status(400).json({ error: 'Not a valid id' })
+      }
       const data = await big5DBCollection.findOne({ _id: new ObjectId(id) })
       if (!data) return res.status(404).json({ error: 'Not found' })
       return res.json(data)
@@ -132,29 +144,38 @@ app.prepare().then(async () => {
   // POST Actus
   server.post('/api/actus', async (req, res) => {
     try {
+      // 1) Validación con Joi (descarta extras)
       const payload = await actusSchema.validateAsync(req.body)
-      const result = await actusDBCollection.insertOne(payload)
+
+      // 2) Defensa extra de email
+      if (!validator.isEmail(payload.emailCliente)) {
+        return res.status(400).json({ error: 'Email inválido' })
+      }
+
+      // 3) Guardar
+      const result   = await actusDBCollection.insertOne(payload)
       const inserted = await actusDBCollection.findOne({ _id: result.insertedId })
 
-      res.status(201).json(inserted) // responder primero
+      // 4) Responder primero
+      res.status(201).json(inserted)
 
-      // enviar emails en background
+      // 5) Emails
       let email = JSON.parse(JSON.stringify(emailDefaults))
       email.html = emailTemplateActus
       email = hidratarEmailBase(email, inserted.emailCliente, inserted.nombreCliente, config.URL, 'Actus')
-      // acá insertás en el HTML de Actus los resultados/mbti
-      // si tenés un helper, úsalo (hidratarTemplateActus)
+
       try {
         const { hidratarTemplateActus } = require('./lib/actus/server')
         email.html = hidratarTemplateActus(email.html, inserted.resultados, inserted.mbti)
       } catch (_) {}
+
       await safeSend(email)
 
-      // admin
+      // Admin
       email.to = 'marubuteler@gmail.com'
       email.subject = `Creactivistas Admin | Actus: Resultados de ${escapeHtml(inserted.nombreCliente)} (${inserted.emailCliente})`
-      email.text = `Hola Maru, este email fue enviado automáticamente luego de que ${inserted.nombreCliente} completó el test Actus.`
-      email.bcc = ['abuteler@enneagonstudios.com']
+      email.text    = `Hola Maru, este email fue enviado automáticamente luego de que ${inserted.nombreCliente} completó el test Actus.`
+      email.bcc     = ['abuteler@enneagonstudios.com']
       await safeSend(email)
 
     } catch (err) {
@@ -166,24 +187,33 @@ app.prepare().then(async () => {
   // POST Big5
   server.post('/api/big5', async (req, res) => {
     try {
+      // 1) Validación con Joi (descarta extras)
       const payload = await big5Schema.validateAsync(req.body)
-      const result = await big5DBCollection.insertOne(payload)
+
+      // 2) Defensa extra de email
+      if (!validator.isEmail(payload.clientEmail)) {
+        return res.status(400).json({ error: 'Email inválido' })
+      }
+
+      // 3) Guardar
+      const result   = await big5DBCollection.insertOne(payload)
       const inserted = await big5DBCollection.findOne({ _id: result.insertedId })
 
-      res.status(201).json(inserted) // responder primero
+      // 4) Responder primero
+      res.status(201).json(inserted)
 
-      // email cliente
+      // 5) Email cliente
       let email = JSON.parse(JSON.stringify(emailDefaults))
       email.html = emailTemplateBig5
       email = hidratarEmailBase(email, inserted.clientEmail, inserted.clientName, config.URL, 'Big 5')
-      email = hidratarEmailBig5(email, inserted._id)
+      email = hidratarEmailBig5(email, inserted._id.toString())
       await safeSend(email)
 
-      // email admin
+      // 6) Email admin
       email.to = 'marubuteler@gmail.com'
       email.subject = `Creactivistas Admin | Big 5: Resultados de ${escapeHtml(inserted.clientName)} (${inserted.clientEmail})`
-      email.text = `Hola Maru, este email fue enviado automáticamente luego de que ${inserted.clientName} completó el test Big 5.`
-      email.bcc = ['abuteler@enneagonstudios.com']
+      email.text    = `Hola Maru, este email fue enviado automáticamente luego de que ${inserted.clientName} completó el test Big 5.`
+      email.bcc     = ['abuteler@enneagonstudios.com']
       await safeSend(email)
 
     } catch (err) {
@@ -192,7 +222,7 @@ app.prepare().then(async () => {
     }
   })
 
-  // Next.js handler
+  // Next.js
   server.use(handler)
   server.listen(port, (err) => {
     if (err) throw err

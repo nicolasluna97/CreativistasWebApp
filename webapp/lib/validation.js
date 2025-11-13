@@ -1,18 +1,29 @@
+
 const Joi = require('joi')
 
-// Ajustá estos schemas a la estructura real de tus formularios
-const big5Schema = Joi.object({
-  clientName: Joi.string().min(2).max(80).required(),
-  clientEmail: Joi.string().email().required(),
-  // TODO: define aquí las respuestas del test (ejemplo)
-  // answers: Joi.array().items(Joi.number().min(1).max(5)).required()
-}).unknown(false)
+// Reglas comunes
+const emailRule = Joi.string().email({ tlds: { allow: false } }).max(254)
+const nameRule  = Joi.string().trim().min(1).max(100)
+
 
 const actusSchema = Joi.object({
-  nombreCliente: Joi.string().min(2).max(80).required(),
-  emailCliente: Joi.string().email().required(),
-  resultados: Joi.array().items(Joi.number()).min(1).required(),
-  mbti: Joi.string().max(10).required()
-}).unknown(false)
+  nombreCliente: nameRule.required(),
+  emailCliente:  emailRule.required(),
+  mbti:          Joi.string().trim().max(16).required(),
+  resultados:    Joi.object().required()
+})
+.prefs({ stripUnknown: true })
 
-module.exports = { big5Schema, actusSchema }
+
+const big5Schema = Joi.object({
+  clientName:  nameRule.required(),
+  clientEmail: emailRule.required(),
+
+  answers: Joi.array().items(
+    Joi.number().integer().min(1).max(5)
+  ).min(10) 
+    .required()
+})
+.prefs({ stripUnknown: true })
+
+module.exports = { actusSchema, big5Schema }
