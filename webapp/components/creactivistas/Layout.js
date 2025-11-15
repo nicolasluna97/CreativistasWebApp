@@ -31,8 +31,8 @@ export default ({ children }) => (
     </div>
     <Footer />
     <style jsx global>
-  {`
-  body {
+    {`
+    body {
     color: black;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
     font-style: normal;
